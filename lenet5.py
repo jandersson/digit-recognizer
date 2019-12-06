@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torch.optim import lr_scheduler
 from torch.utils.data import Dataset
+from torch.utils.data.sampler import SubsetRandomSampler
 from skimage import io, transform
 
 
@@ -36,10 +37,6 @@ def save_model(state, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
 
 
-def get_args():
-    parser = argparse.ArgumentParser(description='Train a model')
-    parser.add_argument('--resume', type=bool, default=False, help='Resume training from checkpoint file')
-    return parser.parse_args()
 
 
 def update_learning_rate(optimizer, current_epoch, override=None):
@@ -171,97 +168,56 @@ class Normalize(object):
         return sample
 
 
-class Trainer(object):
-    def __init__(self):
-        self.running_loss = 0.0
-        self.epochs = 20
-        self.current_epoch = 0
-        self.epoch_start_time = None
-        self.model = None
-        self.optimizer = None
-        self.scheduler = None
-        self.loss_fn = None
 
-    def load_data(self):
-        self.vis.write_log("Loading and Preprocessing MNIST Data")
-        self.training_data = DataLoader(mnist(set_type='train'), batch_size=1)
-        train_mean = self.training_data.dataset.pix_mean
-        train_stdev = self.training_data.dataset.stdev
-        trsfrms = transforms.Compose([ZeroPad(pad_size=2),
-                                      Normalize(mean=train_mean, stdev=train_stdev),
-                                      ToTensor()])
-        self.training_data.dataset.transform = trsfrms
-        self.test_data = DataLoader(mnist(set_type='test', transform=trsfrms), batch_size=1)
-        self.vis.write_log("Loading & Preprocessing Finished")
 
-    def run(self):
-        """Run training module, train then test"""
-        self.vis.write_log(f"Training Module Started at {datetime.now().isoformat(' ', timespec='seconds')}")
-        args = get_args()
-        self.setup_model()
-        self.loss_fn = torch.nn.CrossEntropyLoss(size_average=True)
-        self.load_data()
-        resume = args.resume
-        self.running_loss = 0.0
-        self.start_time = time.time()
-        start_epoch = 0
-        for self.current_epoch in range(start_epoch, self.epochs):
-            self.epoch_start_time = time.time()
-            self.train()
-            self.test()
-            self.vis.write_log("Creating checkpoint")
-            save_model({'epoch': self.current_epoch,
-                        'state_dict': self.model.state_dict(),
-                        'optimizer': self.optimizer.state_dict()})
 
-    def train(self):
-        """Does one training iteration"""
-        epoch_loss = 0
-        self.model.train(True)
-        for sample in self.training_data:
-            image = Variable(sample['image'])
-            # TODO: Detect loss type and do the right transformation on label
-            # Do this for MSELoss
-            # label = Variable((sample['label'].squeeze() == 1).nonzero(), requires_grad=False)
-            # label style for Cross Entropy Loss
-            label = Variable(sample['label'].squeeze().nonzero().select(0,0), requires_grad=False)
-            y_pred = self.model(image)
-            loss = self.loss_fn(y_pred, label)
-            epoch_loss += loss.item()
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-        self.scheduler.step()
-        self.running_loss += epoch_loss
-        self.vis.update_loss_plot(self.current_epoch + 1, epoch_loss)
 
-    def test(self):
-        """Tests model using test set"""
-        self.model.train(False)
-        correct = 0
-        for sample in self.test_data:
-            image = Variable(sample['image'])
-            label = Variable(sample['label'])
-            y_pred = self.model(image)
-            correct += 1 if torch.equal(torch.max(y_pred.data, 1)[1], torch.max(label.data, 1)[1]) else 0
-        test_accuracy = correct/len(self.test_data)
-        self.vis.update_test_accuracy_plot(self.current_epoch + 1, test_accuracy)
-        self.vis.write_log(f"Epoch: {self.current_epoch + 1}\tRunning Loss: {self.running_loss:.2f}\tEpoch time: {(time.time() - self.epoch_start_time):.2f} sec")
-        self.vis.write_log(f"Test Accuracy: {test_accuracy:.2%}")
-        self.vis.write_log(f"Elapsed time: {(time.time() - self.start_time):.2f} sec")
+    # def test(self):
+    #     """Tests model using test set"""
+    #     self.model.train(False)
+    #     correct = 0
+    #     for sample in self.test_data:
+    #         image = Variable(sample['image'])
+    #         label = Variable(sample['label'])
+    #         y_pred = self.model(image)
+    #         correct += 1 if torch.equal(torch.max(y_pred.data, 1)[1], torch.max(label.data, 1)[1]) else 0
+    #     test_accuracy = correct/len(self.test_data)
+    #     self.vis.update_test_accuracy_plot(self.current_epoch + 1, test_accuracy)
+    #     self.vis.write_log(f"Epoch: {self.current_epoch + 1}\tRunning Loss: {self.running_loss:.2f}\tEpoch time: {(time.time() - self.epoch_start_time):.2f} sec")
+    #     self.vis.write_log(f"Test Accuracy: {test_accuracy:.2%}")
+    #     self.vis.write_log(f"Elapsed time: {(time.time() - self.start_time):.2f} sec")
 
 
 if __name__ == '__main__':
     import pandas as pd
+    validation_split = 0.2
+    shuffle_dataset = True
+    random_seed = 42
+    batch_size = 1
     running_loss = 0.0
     epochs = 20
     current_epoch = 0
     epoch_start_time = None
+
     data_transforms = transforms.Compose([ZeroPad(pad_size=2),
                                           ToTensor()])
-    data_train = DataLoader(DigitDataset('data/train.csv',
-                                         transform=data_transforms),
-                            batch_size=1)
+    data = DigitDataset('data/train.csv', transform=data_transforms)
+    # Creating data indices for training and validation splits:
+    dataset_size = len(data)
+    indices = list(range(dataset_size))
+    split = int(np.floor(validation_split * dataset_size))
+    if shuffle_dataset:
+        np.random.seed(random_seed)
+        np.random.shuffle(indices)
+    train_indices, val_indices = indices[split:], indices[:split]
+
+    train_sampler = SubsetRandomSampler(train_indices)
+    valid_sampler = SubsetRandomSampler(val_indices)
+
+    train_loader = torch.utils.data.DataLoader(data, batch_size=batch_size,
+                                               sampler=train_sampler)
+    validation_loader = torch.utils.data.DataLoader(data, batch_size=batch_size,
+                                                    sampler=valid_sampler)
     data_test = DigitDataset('data/test.csv')
     model = LeNet5()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.005)
@@ -277,18 +233,16 @@ if __name__ == '__main__':
     running_loss = 0.0
     start_time = time.time()
     start_epoch = 0
+    # TRAIN
     for current_epoch in range(start_epoch, epochs):
         epoch_start_time = time.time()
         epoch_loss = 0
         model.train(True)
-        for sample in data_train:
+        for batch_index, sample in train_loader:
             image = Variable(sample['image'])
             # TODO: Detect loss type and do the right transformation on label
-            # Do this for MSELoss
-            # label = Variable((sample['label'].squeeze() == 1).nonzero(), requires_grad=False)
-            # label style for Cross Entropy Loss
-            label = Variable(sample['label'], requires_grad=False)
-            # label = sample['label']
+            label = sample['label']
+            label = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float()
             y_pred = model(image)
             loss = loss_fn(y_pred, label)
             epoch_loss += loss.item()
@@ -298,4 +252,19 @@ if __name__ == '__main__':
         scheduler.step()
         running_loss += epoch_loss
         print(running_loss)
+
+        # TEST
+        model.train(False)
+        correct = 0
+        for sample in validation_loader:
+            image = Variable(sample['image'])
+            label = Variable(sample['label'])
+            y_pred = model(image)
+            correct += 1 if torch.equal(torch.max(y_pred.data, 1)[1], torch.max(label.data, 1)[1]) else 0
+        test_accuracy = correct/len(data_test)
+        print(f'accuracy: {test_accuracy}')
+    # self.vis.update_test_accuracy_plot(current_epoch + 1, test_accuracy)
+    # self.vis.write_log(f"Epoch: {self.current_epoch + 1}\tRunning Loss: {self.running_loss:.2f}\tEpoch time: {(time.time() - self.epoch_start_time):.2f} sec")
+    # self.vis.write_log(f"Test Accuracy: {test_accuracy:.2%}")
+    # self.vis.write_log(f"Elapsed time: {(time.time() - self.start_time):.2f} sec")
 
