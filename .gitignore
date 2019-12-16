@@ -1,0 +1,6 @@
+mlruns
+runs
+.ipynb_checkpoints
+submission.csv
+__pycache__
+.idea

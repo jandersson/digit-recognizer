@@ -147,11 +147,16 @@ if __name__ == '__main__':
             epoch_start_time = time.time()
             model.train(True)
             for batch_index, sample in enumerate(train_loader):
-                image = Variable(sample['image'])
+                if torch.cuda.is_available():
+                    image = Variable(sample['image'].cuda())
+                    label = Variable(sample['label'].cuda())
+                    label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float().cuda()
+                else:
+                    image = Variable(sample['image'])
+                    label = Variable(sample['label'])
+                    label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float().cuda()
                 optimizer.zero_grad()
                 # TODO: Detect loss type and do the right transformation on label
-                label = Variable(sample['label'])
-                label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float().cuda()
                 y_pred = model(image)
                 loss = loss_fn(y_pred, label_one_hot)
                 loss.backward()
@@ -176,13 +181,18 @@ if __name__ == '__main__':
             with torch.no_grad():
 
                 for sample in validation_loader:
-                    image = Variable(sample['image'])
-                    label = Variable(sample['label'])
-                    label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float().cuda()
+                    if torch.cuda.is_available():
+                        image = Variable(sample['image'].cuda())
+                        label = Variable(sample['label'].cuda())
+                        label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float().cuda()
+                    else:
+                        image = Variable(sample['image'])
+                        label = Variable(sample['label'])
+                        label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float().cuda()
                     output = model(image)
                     test_loss += loss_fn(output, label_one_hot).item()
                     prediction = output.data.max(1)[1]
-                    correct += prediction.eq(label.data).cpu().sum().item()
+                    correct += prediction.eq(label.data).sum().item()
 
                 test_loss /= len(validation_loader)
                 test_accuracy = 100 * correct/len(validation_loader)
