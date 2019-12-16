@@ -3,7 +3,6 @@ Uses ReLU instead of tanh activation
 Uses Max pooling instead of average
 """
 
-import logging
 import time
 
 import numpy as np
@@ -18,14 +17,10 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
 import mlflow
+import mlflow.pytorch
 
 from model import LeNet5
 from data import DigitDataset, ToTensor, Normalize, ZeroPad
-
-
-logging.basicConfig(level=logging.WARN)
-logger = logging.getLogger(__name__)
-writer = None
 
 
 # helper function to show an image
@@ -77,17 +72,17 @@ def log_scalar(writer, name, value, step):
 
 
 if __name__ == '__main__':
-    validation_split = 0.2
+    validation_split = 0.1
     shuffle_dataset = True
     random_seed = 42
     batch_size = 1
-    initial_learning_rate = 0.005
-    sgd_momentum = 0
+    initial_learning_rate = 0.05
+    sgd_momentum = 0.9
     running_loss = 0.0
-    epochs = 20
+    epochs = 10
     current_epoch = 0
     epoch_start_time = None
-    summary_output_path = 'runs/digit_recognizer_experiment_5'
+    summary_output_path = 'runs/digit_recognizer_experiment_8'
     writer = SummaryWriter(summary_output_path)
 
     data_transforms = transforms.Compose([ZeroPad(pad_size=2),
@@ -146,6 +141,7 @@ if __name__ == '__main__':
         mlflow.log_param('epochs', epochs)
         mlflow.log_param('initial_learning_rate', initial_learning_rate)
         mlflow.log_param('sgd_momentum', sgd_momentum)
+        mlflow.log_param('validation_split', validation_split)
         # TRAIN
         for current_epoch in range(start_epoch, epochs):
             epoch_start_time = time.time()
@@ -154,8 +150,8 @@ if __name__ == '__main__':
                 image = Variable(sample['image'])
                 optimizer.zero_grad()
                 # TODO: Detect loss type and do the right transformation on label
-                label = sample['label']
-                label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float()
+                label = Variable(sample['label'])
+                label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float().cuda()
                 y_pred = model(image)
                 loss = loss_fn(y_pred, label_one_hot)
                 loss.backward()
@@ -182,7 +178,7 @@ if __name__ == '__main__':
                 for sample in validation_loader:
                     image = Variable(sample['image'])
                     label = Variable(sample['label'])
-                    label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float()
+                    label_one_hot = torch.nn.functional.one_hot(label.to(torch.int64), num_classes=10).float().cuda()
                     output = model(image)
                     test_loss += loss_fn(output, label_one_hot).item()
                     prediction = output.data.max(1)[1]
@@ -193,4 +189,5 @@ if __name__ == '__main__':
                 step = (current_epoch + 1) * len(train_loader)
                 log_scalar(writer, 'test loss', test_loss, step)
                 log_scalar(writer, 'test accuracy', test_accuracy, step)
-        mlflow.log_artifacts(summary_output_path, artifact_path='events')
+        # mlflow.log_artifacts(summary_output_path, artifact_path='events')
+        mlflow.pytorch.log_model(model, "models")

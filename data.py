@@ -27,7 +27,7 @@ class DigitDataset(Dataset):
             label = self.digits_frame.iloc[idx, 0]
             image = self.digits_frame.iloc[idx, 1:].values
         else:
-            label = None
+            label = []
             image = self.digits_frame.iloc[idx, :].values
         image = image.reshape(28, 28)
         sample = {'label': label, 'image': image}
@@ -42,16 +42,15 @@ class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
     def __call__(self, sample):
         image_dtype = torch.FloatTensor
-        label_dtype = torch.LongTensor
         if torch.cuda.is_available():
             image_dtype = torch.cuda.FloatTensor
-            label_dtype = torch.cuda.LongTensor
         image, label = sample['image'], sample['label']
         # add color channel so image is C x W x H
         image = image[np.newaxis, :, :]
-        label = np.array([label])
         image = torch.from_numpy(image).type(image_dtype)
-        label = torch.from_numpy(label).type(image_dtype)
+        if label:
+            label = np.array([label])
+            label = torch.from_numpy(label).type(image_dtype)
         return {'image': image,
                 'label': label}
 
